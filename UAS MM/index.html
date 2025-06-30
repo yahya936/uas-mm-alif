@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Metaverse 3D Hutan - Siang & Malam</title>
+    <style>
+        body { 
+            margin: 0;  
+            overflow: hidden; 
+            font-family: Arial, sans-serif;
+        }
+        canvas { 
+            display: block; 
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 100;
+        }
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            padding: 10px 20px;
+            border-radius: 20px;
+            display: flex;
+            gap: 15px;
+            z-index: 100;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 15px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        button:hover {
+            background: #45a049;
+            transform: scale(1.05);
+        }
+        #time-display {
+            color: white;
+            padding: 8px 15px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">Metaverse Hutan 3D<br>Gunakan mouse untuk melihat sekitar<br>WASD untuk bergerak</div>
+    <div id="controls">
+        <button id="day-btn">Mode Siang</button>
+        <div id="time-display">Waktu: Siang</div>
+        <button id="night-btn">Mode Malam</button>
+        <button id="auto-btn">Auto (Siang/Malam)</button>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.min.js"></script>
+    <script>
+        // Inisialisasi scene
+        const scene = new THREE.Scene();
+        
+        // Pengaturan fog berdasarkan mode
+        let dayMode = true;
+        let autoMode = false;
+        updateFog();
+        
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 5, 10);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Kontrol kamera
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.minDistance = 5;
+        controls.maxDistance = 50;
+
+        // Pencahayaan
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(10, 20, 10);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.camera.near = 0.1;
+        directionalLight.shadow.camera.far = 100;
+        directionalLight.shadow.camera.left = -20;
+        directionalLight.shadow.camera.right = 20;
+        directionalLight.shadow.camera.top = 20;
+        directionalLight.shadow.camera.bottom = -20;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        scene.add(directionalLight);
+        
+        // Lampu untuk malam hari
+        const moonLight = new THREE.DirectionalLight(0x7da5ff, 0);
+        moonLight.position.set(-10, 20, -10);
+        moonLight.castShadow = true;
+        scene.add(moonLight);
+        
+        // Lampu titik di sekitar pohon untuk malam hari
+        const treeLights = [];
+        
+        // Helper untuk update pencahayaan berdasarkan mode
+        function updateLighting() {
+            if (dayMode) {
+                // Mode siang
+                directionalLight.intensity = 1;
+                moonLight.intensity = 0;
+                ambientLight.intensity = 0.5;
+                
+                // Matikan lampu pohon
+                treeLights.forEach(light => {
+                    light.intensity = 0;
+                });
+                
+                document.body.style.background = 'linear-gradient(to bottom, #87CEEB, #E0F7FA)';
+            } else {
+                // Mode malam
+                directionalLight.intensity = 0;
+                moonLight.intensity = 0.3;
+                ambientLight.intensity = 0.2;
+                ambientLight.color.setHex(0x333366);
+                
+                // Nyalakan lampu pohon
+                treeLights.forEach(light => {
+                    light.intensity = 0.5;
+                });
+                
+                document.body.style.background = 'linear-gradient(to bottom, #000428, #004e92)';
+            }
+        }
+        
+        function updateFog() {
+            if (dayMode) {
+                scene.fog = new THREE.FogExp2(0xaaccff, 0.01);
+            } else {
+                scene.fog = new THREE.FogExp2(0x000033, 0.002);
+            }
+        }
+
+        // Skybox
+        const skyGeometry = new THREE.SphereGeometry(500, 32, 32);
+        const daySkyMaterial = new THREE.MeshBasicMaterial({
+            color: 0x87CEEB,
+            side: THREE.BackSide
+        });
+        const nightSkyMaterial = new THREE.MeshBasicMaterial({
+            color: 0x000033,
+            side: THREE.BackSide
+        });
+        const skybox = new THREE.Mesh(skyGeometry, daySkyMaterial);
+        scene.add(skybox);
+
+        // Membuat terrain dengan noise
+        function createTerrain() {
+            const terrainSize = 100;
+            const terrainGeometry = new THREE.PlaneGeometry(terrainSize, terrainSize, 100, 100);
+            
+            // Terrain displacement
+            const position = terrainGeometry.attributes.position;
+            for (let i = 0; i < position.count; i++) {
+                const x = position.getX(i);
+                const y = position.getY(i);
+                const distance = Math.sqrt(x*x + y*y) / terrainSize;
+                const noise = Math.sin(x * 0.2) * Math.cos(y * 0.2) * 2;
+                position.setZ(i, noise * (1 - distance));
+            }
+            
+            terrainGeometry.computeVertexNormals();
+            
+            const terrainMaterial = new THREE.MeshStandardMaterial({
+                color: 0x3a5f0b,
+                wireframe: false,
+                flatShading: false,
+                side: THREE.DoubleSide
+            });
+            
+            const terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
+            terrain.rotation.x = -Math.PI / 2;
+            terrain.position.y = -2;
+            terrain.receiveShadow = true;
+            
+            return terrain;
+        }
+
+        // Membuat gunung dengan displacement
+        function createMountain() {
+            const mountainGeometry = new THREE.ConeGeometry(15, 20, 64, 1, true);
+            
+            // Displacement gunung
+            const position = mountainGeometry.attributes.position;
+            for (let i = 0; i < position.count; i++) {
+                const x = position.getX(i);
+                const y = position.getY(i);
+                const z = position.getZ(i);
+                const distance = Math.sqrt(x*x + z*z) / 15;
+                const noise = Math.sin(x * 0.3) * Math.cos(z * 0.3) * 5;
+                position.setY(i, y + noise * (1 - distance));
+            }
+            
+            mountainGeometry.computeVertexNormals();
+            
+            const mountainMaterial = new THREE.MeshStandardMaterial({
+                color: 0x5d4037,
+                wireframe: false,
+                flatShading: false
+            });
+            
+            const mountain = new THREE.Mesh(mountainGeometry, mountainMaterial);
+            mountain.position.z = -50;
+            mountain.position.y = -2;
+            mountain.castShadow = true;
+            mountain.receiveShadow = true;
+            
+            return mountain;
+        }
+
+        // Membuat pohon 3D yang lebih realistis
+        function createRealisticTree(x, z) {
+            const tree = new THREE.Group();
+            
+            // Batang pohon
+            const trunkHeight = 2 + Math.random() * 1;
+            const trunkGeometry = new THREE.CylinderGeometry(0.3, 0.5, trunkHeight, 8);
+            const trunkMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x8B4513,
+                roughness: 0.8
+            });
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+            trunk.castShadow = true;
+            trunk.receiveShadow = true;
+            trunk.position.y = trunkHeight / 2;
+            
+            // Daun (beberapa lapis untuk efek lebih tebal)
+            for (let i = 0; i < 3; i++) {
+                const leavesSize = 2 - i * 0.5;
+                const leavesGeometry = new THREE.SphereGeometry(leavesSize, 16, 16, 0, Math.PI * 2, 0, Math.PI * 0.5);
+                const leavesMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x2e8b57,
+                    roughness: 0.7,
+                    transparent: true,
+                    opacity: 0.9
+                });
+                const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
+                leaves.castShadow = true;
+                leaves.position.y = trunkHeight + i * 1.2;
+                tree.add(leaves);
+            }
+            
+            // Tambahkan lampu titik untuk malam hari
+            const treeLight = new THREE.PointLight(0xffcc99, 0, 5, 2);
+            treeLight.position.set(0, trunkHeight + 1, 0);
+            tree.add(treeLight);
+            treeLights.push(treeLight);
+            
+            tree.add(trunk);
+            tree.position.set(x, 0, z);
+            tree.rotation.y = Math.random() * Math.PI;
+            
+            return tree;
+        }
+
+        // Membuat harimau low-poly 3D
+        function createTiger(x, z) {
+            const tiger = new THREE.Group();
+            
+            // Body
+            const bodyGeometry = new THREE.SphereGeometry(0.8, 16, 16);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xFF8C00,
+                roughness: 0.6
+            });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.castShadow = true;
+            
+            // Head
+            const headGeometry = new THREE.SphereGeometry(0.5, 16, 16);
+            const headMaterial = new THREE.MeshStandardMaterial({ color: 0xFF8C00 });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.set(0, 0.8, 0.7);
+            
+            // Ears
+            const earGeometry = new THREE.ConeGeometry(0.2, 0.3, 4);
+            const leftEar = new THREE.Mesh(earGeometry, bodyMaterial);
+            leftEar.position.set(-0.3, 1.1, 0.5);
+            leftEar.rotation.x = -Math.PI / 4;
+            const rightEar = new THREE.Mesh(earGeometry, bodyMaterial);
+            rightEar.position.set(0.3, 1.1, 0.5);
+            rightEar.rotation.x = -Math.PI / 4;
+            
+            // Stripes
+            const stripeMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+            for(let i = 0; i < 10; i++) {
+                const width = 0.8 + Math.random() * 0.5;
+                const stripeGeometry = new THREE.BoxGeometry(width, 0.1, 0.1);
+                const stripe = new THREE.Mesh(stripeGeometry, stripeMaterial);
+                stripe.position.set(
+                    (Math.random() - 0.5) * 0.5,
+                    -0.5 + i * 0.2,
+                    (Math.random() - 0.5) * 0.5
+                );
+                stripe.rotation.y = Math.random() * Math.PI;
+                body.add(stripe);
+            }
+            
+            // Legs
+            const legGeometry = new THREE.CylinderGeometry(0.1, 0.1, 0.5, 8);
+            const legs = [];
+            for (let i = 0; i < 4; i++) {
+                const leg = new THREE.Mesh(legGeometry, bodyMaterial);
+                const xPos = i % 2 === 0 ? -0.3 : 0.3;
+                const zPos = i < 2 ? -0.5 : 0.5;
+                leg.position.set(xPos, -0.5, zPos);
+                leg.rotation.x = Math.PI / 2;
+                legs.push(leg);
+            }
+            
+            // Tail
+            const tailGeometry = new THREE.CylinderGeometry(0.05, 0.1, 1, 8);
+            const tail = new THREE.Mesh(tailGeometry, bodyMaterial);
+            tail.position.set(0, 0, -1);
+            tail.rotation.x = Math.PI / 4;
+            
+            // Eyes
+            const eyeGeometry = new THREE.SphereGeometry(0.05, 8, 8);
+            const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+            const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            leftEye.position.set(-0.15, 0.9, 0.9);
+            const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            rightEye.position.set(0.15, 0.9, 0.9);
+            
+            // Mata bersinar di malam hari
+            const leftEyeLight = new THREE.PointLight(0xffff00, 0, 0.5);
+            leftEyeLight.position.copy(leftEye.position);
+            const rightEyeLight = new THREE.PointLight(0xffff00, 0, 0.5);
+            rightEyeLight.position.copy(rightEye.position);
+            
+            tiger.add(body);
+            tiger.add(head);
+            tiger.add(leftEar);
+            tiger.add(rightEar);
+            legs.forEach(leg => tiger.add(leg));
+            tiger.add(tail);
+            tiger.add(leftEye);
+            tiger.add(rightEye);
+            tiger.add(leftEyeLight);
+            tiger.add(rightEyeLight);
+            
+            tiger.position.set(x, 0.8, z);
+            tiger.rotation.y = Math.random() * Math.PI * 2;
+            
+            return tiger;
+        }
+
+        // Membuat gajah low-poly 3D
+        function createElephant(x, z) {
+            const elephant = new THREE.Group();
+            
+            // Body
+            const bodyGeometry = new THREE.SphereGeometry(1.2, 16, 16);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x808080,
+                roughness: 0.7
+            });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.castShadow = true;
+            
+            // Head
+            const headGeometry = new THREE.SphereGeometry(0.8, 16, 16);
+            const head = new THREE.Mesh(headGeometry, bodyMaterial);
+            head.position.set(0, 0.5, 1.2);
+            
+            // Trunk (belalai)
+            const trunkGeometry = new THREE.CylinderGeometry(0.1, 0.2, 1.5, 8);
+            const trunk = new THREE.Mesh(trunkGeometry, bodyMaterial);
+            trunk.position.set(0, 0.5, 2);
+            trunk.rotation.x = Math.PI / 2;
+            
+            // Ears
+            const earGeometry = new THREE.PlaneGeometry(1, 0.8);
+            const leftEar = new THREE.Mesh(earGeometry, bodyMaterial);
+            leftEar.position.set(-1, 0.8, 0);
+            leftEar.rotation.y = Math.PI / 2;
+            const rightEar = new THREE.Mesh(earGeometry, bodyMaterial);
+            rightEar.position.set(1, 0.8, 0);
+            rightEar.rotation.y = -Math.PI / 2;
+            
+            // Legs
+            const legGeometry = new THREE.CylinderGeometry(0.3, 0.3, 1, 8);
+            const legs = [];
+            for (let i = 0; i < 4; i++) {
+                const leg = new THREE.Mesh(legGeometry, bodyMaterial);
+                const xPos = i % 2 === 0 ? -0.7 : 0.7;
+                const zPos = i < 2 ? -0.8 : 0.8;
+                leg.position.set(xPos, -0.5, zPos);
+                legs.push(leg);
+            }
+            
+            // Tusks (gading)
+            const tuskGeometry = new THREE.ConeGeometry(0.05, 0.5, 8);
+            const tuskMaterial = new THREE.MeshStandardMaterial({ color: 0xF5F5DC });
+            const leftTusk = new THREE.Mesh(tuskGeometry, tuskMaterial);
+            leftTusk.position.set(-0.3, 0.3, 1.8);
+            leftTusk.rotation.z = Math.PI / 4;
+            const rightTusk = new THREE.Mesh(tuskGeometry, tuskMaterial);
+            rightTusk.position.set(0.3, 0.3, 1.8);
+            rightTusk.rotation.z = -Math.PI / 4;
+            
+            // Eyes
+            const eyeGeometry = new THREE.SphereGeometry(0.05, 8, 8);
+            const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+            const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            leftEye.position.set(-0.3, 0.7, 1.5);
+            const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            rightEye.position.set(0.3, 0.7, 1.5);
+            
+            // Tail
+            const tailGeometry = new THREE.CylinderGeometry(0.05, 0.1, 0.5, 8);
+            const tail = new THREE.Mesh(tailGeometry, bodyMaterial);
+            tail.position.set(0, 0, -1.5);
+            tail.rotation.x = Math.PI / 4;
+            
+            elephant.add(body);
+            elephant.add(head);
+            elephant.add(trunk);
+            elephant.add(leftEar);
+            elephant.add(rightEar);
+            legs.forEach(leg => elephant.add(leg));
+            elephant.add(leftTusk);
+            elephant.add(rightTusk);
+            elephant.add(leftEye);
+            elephant.add(rightEye);
+            elephant.add(tail);
+            
+            elephant.position.set(x, 1, z);
+            elephant.rotation.y = Math.random() * Math.PI * 2;
+            
+            return elephant;
+        }
+
+        // Membuat hutan
+        scene.add(createTerrain());
+        scene.add(createMountain());
+        
+        // Menambahkan beberapa pohon
+        for(let i = 0; i < 30; i++) {
+            const x = (Math.random() - 0.5) * 40;
+            const z = -10 - Math.random() * 60;
+            scene.add(createRealisticTree(x, z));
+        }
+        
+        // Menambahkan hewan
+        scene.add(createTiger(-5, -10));
+        scene.add(createTiger(8, -15));
+        scene.add(createElephant(5, -20));
+        scene.add(createElephant(-8, -25));
+
+        // Kontrol UI
+        document.getElementById('day-btn').addEventListener('click', () => {
+            autoMode = false;
+            dayMode = true;
+            updateLighting();
+            updateFog();
+            skybox.material = daySkyMaterial;
+            document.getElementById('time-display').textContent = 'Waktu: Siang';
+        });
+        
+        document.getElementById('night-btn').addEventListener('click', () => {
+            autoMode = false;
+            dayMode = false;
+            updateLighting();
+            updateFog();
+            skybox.material = nightSkyMaterial;
+            document.getElementById('time-display').textContent = 'Waktu: Malam';
+        });
+        
+        document.getElementById('auto-btn').addEventListener('click', () => {
+            autoMode = true;
+            document.getElementById('time-display').textContent = 'Waktu: Auto';
+        });
+
+        // Animasi
+        const clock = new THREE.Clock();
+        let cycleTime = 0;
+        const dayDuration = 60; // durasi siklus siang-malam dalam detik
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const delta = clock.getDelta();
+            
+            // Animasi siklus siang/malam otomatis
+            if (autoMode) {
+                cycleTime += delta;
+                if (cycleTime > dayDuration) cycleTime = 0;
+                
+                // Hitung progress siklus (0-1)
+                const progress = cycleTime / dayDuration;
+                
+                // Update waktu berdasarkan progress
+                if (progress < 0.5) {
+                    // Siang ke malam
+                    const dayNightProgress = progress * 2;
+                    dayMode = false;
+                    
+                    // Interpolasi warna dan intensitas
+                    directionalLight.intensity = 1 - dayNightProgress;
+                    moonLight.intensity = dayNightProgress * 0.3;
+                    ambientLight.intensity = 0.5 - (dayNightProgress * 0.3);
+                    
+                    // Interpolasi warna ambient
+                    ambientLight.color.setHSL(
+                        0.6, 
+                        0.5, 
+                        0.5 - (dayNightProgress * 0.3)
+                    );
+                    
+                    // Interpolasi warna skybox
+                    const skyColor = new THREE.Color(0x87CEEB).lerp(
+                        new THREE.Color(0x000033),
+                        dayNightProgress
+                    );
+                    skybox.material.color.copy(skyColor);
+                    
+                    // Interpolasi fog
+                    scene.fog.color.setHSL(
+                        0.6, 
+                        0.5, 
+                        0.7 - (dayNightProgress * 0.7)
+                    );
+                    scene.fog.density = 0.01 + (dayNightProgress * 0.001);
+                    
+                    // Update lampu pohon
+                    treeLights.forEach(light => {
+                        light.intensity = dayNightProgress * 0.5;
+                    });
+                    
+                    // Update background
+                    const bgColor = new THREE.Color(0x87CEEB).lerp(
+                        new THREE.Color(0x000033),
+                        dayNightProgress
+                    );
+                    document.body.style.background = `linear-gradient(to bottom, ${bgColor.getStyle()}, ${bgColor.clone().offsetHSL(0, 0, 0.2).getStyle()})`;
+                } else {
+                    // Malam ke siang
+                    const nightDayProgress = (progress - 0.5) * 2;
+                    dayMode = true;
+                    
+                    // Interpolasi warna dan intensitas
+                    directionalLight.intensity = nightDayProgress;
+                    moonLight.intensity = 0.3 - (nightDayProgress * 0.3);
+                    ambientLight.intensity = 0.2 + (nightDayProgress * 0.3);
+                    
+                    // Interpolasi warna ambient
+                    ambientLight.color.setHSL(
+                        0.6, 
+                        0.5, 
+                        0.2 + (nightDayProgress * 0.3)
+                    );
+                    
+                    // Interpolasi warna skybox
+                    const skyColor = new THREE.Color(0x000033).lerp(
+                        new THREE.Color(0x87CEEB),
+                        nightDayProgress
+                    );
+                    skybox.material.color.copy(skyColor);
+                    
+                    // Interpolasi fog
+                    scene.fog.color.setHSL(
+                        0.6, 
+                        0.5, 
+                        0.3 + (nightDayProgress * 0.4)
+                    );
+                    scene.fog.density = 0.011 - (nightDayProgress * 0.001);
+                    
+                    // Update lampu pohon
+                    treeLights.forEach(light => {
+                        light.intensity = 0.5 - (nightDayProgress * 0.5);
+                    });
+                    
+                    // Update background
+                    const bgColor = new THREE.Color(0x000033).lerp(
+                        new THREE.Color(0x87CEEB),
+                        nightDayProgress
+                    );
+                    document.body.style.background = `linear-gradient(to bottom, ${bgColor.getStyle()}, ${bgColor.clone().offsetHSL(0, 0, 0.2).getStyle()})`;
+                }
+                
+                document.getElementById('time-display').textContent = 
+                    `Waktu: Auto (${Math.round(progress * 24)}:00)`;
+            }
+            
+            // Animasi harimau dan gajah
+            scene.children.forEach(child => {
+                if (child instanceof THREE.Group) {
+                    // Deteksi apakah ini harimau
+                    if (child.children.some(c => c.material && c.material.color.getHex() === 0xFF8C00)) {
+                        // Gerakan berjalan
+                        child.position.x += Math.sin(clock.getElapsedTime()) * 0.01;
+                        child.position.z += Math.cos(clock.getElapsedTime()) * 0.01;
+                        child.rotation.y += Math.sin(clock.getElapsedTime() * 2) * 0.01;
+                        
+                        // Gerakan belalai untuk harimau (ekor)
+                        const tail = child.children.find(c => 
+                            c.geometry instanceof THREE.CylinderGeometry && 
+                            c.material.color.getHex() === 0xFF8C00
+                        );
+                        if (tail) {
+                            tail.rotation.x = Math.PI / 4 + Math.sin(clock.getElapsedTime() * 3) * 0.1;
+                        }
+                        
+                        // Update mata bersinar di malam hari
+                        if (!dayMode || autoMode) {
+                            const eyeLights = child.children.filter(c => c instanceof THREE.PointLight);
+                            eyeLights.forEach(light => {
+                                light.intensity = 0.5;
+                            });
+                        } else {
+                            const eyeLights = child.children.filter(c => c instanceof THREE.PointLight);
+                            eyeLights.forEach(light => {
+                                light.intensity = 0;
+                            });
+                        }
+                    }
+                    
+                    // Deteksi apakah ini gajah
+                    if (child.children.some(c => c.material && c.material.color.getHex() === 0x808080)) {
+                        // Gerakan berjalan
+                        child.position.x += Math.sin(clock.getElapsedTime() * 0.5) * 0.005;
+                        child.position.z += Math.cos(clock.getElapsedTime() * 0.5) * 0.005;
+                        child.rotation.y += Math.sin(clock.getElapsedTime()) * 0.005;
+                        
+                        // Gerakan belalai
+                        const trunk = child.children.find(c => 
+                            c.geometry instanceof THREE.CylinderGeometry && 
+                            c.position.z > 1.5
+                        );
+                        if (trunk) {
+                            trunk.rotation.x = Math.PI / 2 + Math.sin(clock.getElapsedTime() * 2) * 0.2;
+                        }
+                    }
+                }
+            });
+            
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // Responsive
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
